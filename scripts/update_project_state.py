@@ -37,6 +37,7 @@ class TaskStatus(str, Enum):
 
 # ── Data Structures ────────────────────────────────────────────────────────────
 
+
 @dataclass
 class Task:
     """Represents an atomic task."""
@@ -75,6 +76,7 @@ class Epic:
 
 # ── File I/O ───────────────────────────────────────────────────────────────────
 
+
 def read_state() -> str:
     """Read the current PROJECT_STATE.md content."""
     if not STATE_FILE.exists():
@@ -88,6 +90,7 @@ def write_state(content: str) -> None:
 
 
 # ── Parsing ────────────────────────────────────────────────────────────────────
+
 
 def parse_tasks(text: str) -> list[Task]:
     """Parse all tasks from the Atomic Task Tracker table."""
@@ -142,9 +145,9 @@ def parse_current_context(text: str) -> dict[str, str]:
 
     # Extract from Current Working Context section
     section_match = re.search(
-        r"## Current Working Context\n\n(.*?)(?=## |\Z)",
+        r"^#+\s+Current Working Context\s*$\n\n(.*?)(?=^#+\s+|\Z)",
         text,
-        re.DOTALL,
+        re.MULTILINE | re.DOTALL,
     )
     if not section_match:
         return context
@@ -159,6 +162,7 @@ def parse_current_context(text: str) -> dict[str, str]:
 
 
 # ── Updates ─────────────────────────────────────────────────────────────────────
+
 
 def update_task_status(tasks: list[Task], task_id: str, status: str) -> list[Task]:
     """Update the status of a specific task."""
@@ -193,7 +197,10 @@ def find_next_task(tasks: list[Task], current_task_id: str) -> Task | None:
     # First: same epic, next in list
     for i in range(current_idx + 1, len(tasks)):
         if tasks[i].status == TaskStatus.NOT_STARTED.value:
-            if tasks[i].milestone == current_milestone and tasks[i].epic == current_epic:
+            if (
+                tasks[i].milestone == current_milestone
+                and tasks[i].epic == current_epic
+            ):
                 return tasks[i]
 
     # Second: same milestone, any epic
@@ -346,6 +353,7 @@ def update_overall_progress(text: str, total: int, completed: int) -> str:
 
 # ── Main Operations ────────────────────────────────────────────────────────────
 
+
 def mark_task_complete(task_id: str) -> None:
     """Mark a specific task as completed and update state."""
     text = read_state()
@@ -369,7 +377,9 @@ def mark_task_complete(task_id: str) -> None:
         text = text[: old_table.start()] + new_table + "\n" + text[old_table.end() :]
 
     # Update completed tasks section
-    completed_section = re.search(r"## Completed Tasks\n\n(.*?)(?=## |\Z)", text, re.DOTALL)
+    completed_section = re.search(
+        r"## Completed Tasks\n\n(.*?)(?=## |\Z)", text, re.DOTALL
+    )
     if completed_section:
         existing = completed_section.group(1).strip()
         if existing == "No completed tasks.":
@@ -385,7 +395,9 @@ def mark_task_complete(task_id: str) -> None:
 
     write_state(text)
     print(f"[SUCCESS] Task {task_id} marked as COMPLETED")
-    print(f"[INFO] Overall progress: {completed}/{total} tasks ({int((completed/total)*100)}%)")
+    print(
+        f"[INFO] Overall progress: {completed}/{total} tasks ({int((completed / total) * 100)}%)"
+    )
 
 
 def advance_to_next() -> None:
@@ -394,10 +406,12 @@ def advance_to_next() -> None:
     tasks = parse_tasks(text)
     context = parse_current_context(text)
 
-    current_task_id = context.get("Current task", "")
-    if not current_task_id or current_task_id == "—":
+    current_task_field = context.get("Current task", "")
+    if not current_task_field or current_task_field == "—":
         print("[ERROR] No current task found in context")
         sys.exit(1)
+
+    current_task_id = current_task_field.split(" — ")[0].strip()
 
     # Mark current as completed
     tasks = update_task_status(tasks, current_task_id, TaskStatus.COMPLETED.value)
@@ -441,13 +455,19 @@ def advance_to_next() -> None:
         text = update_overall_progress(text, total, completed)
 
         # Rebuild task table so the current task shows COMPLETED
-        old_table = re.search(r"## Atomic Task Tracker\n\n.*?\n(?=## |\Z)", text, re.DOTALL)
+        old_table = re.search(
+            r"## Atomic Task Tracker\n\n.*?\n(?=## |\Z)", text, re.DOTALL
+        )
         if old_table:
             new_table = rebuild_task_table(tasks)
-            text = text[: old_table.start()] + new_table + "\n" + text[old_table.end() :]
+            text = (
+                text[: old_table.start()] + new_table + "\n" + text[old_table.end() :]
+            )
 
         # Update completed tasks
-        completed_section = re.search(r"## Completed Tasks\n\n(.*?)(?=## |\Z)", text, re.DOTALL)
+        completed_section = re.search(
+            r"## Completed Tasks\n\n(.*?)(?=## |\Z)", text, re.DOTALL
+        )
         if completed_section:
             existing = completed_section.group(1).strip()
             if existing == "No completed tasks.":
@@ -462,7 +482,9 @@ def advance_to_next() -> None:
             )
 
         write_state(text)
-        print(f"[INFO] Overall progress: {completed}/{total} tasks ({int((completed/total)*100)}%)")
+        print(
+            f"[INFO] Overall progress: {completed}/{total} tasks ({int((completed / total) * 100)}%)"
+        )
         return
 
     # Update next task to IN_PROGRESS
@@ -480,7 +502,9 @@ def advance_to_next() -> None:
 
     # Find next-next task for the "Next task" field
     next_next = find_next_task(tasks, next_task.task_id)
-    next_task_display = f"{next_next.task_id} — {next_next.task_name}" if next_next else "—"
+    next_task_display = (
+        f"{next_next.task_id} — {next_next.task_name}" if next_next else "—"
+    )
     text = re.sub(
         r"(\| Next task \|) .*? (\|)",
         f"\\1 {next_task_display} \\2",
@@ -506,6 +530,25 @@ def advance_to_next() -> None:
         text,
     )
 
+    # Update expected files and dependencies from the task tracker
+    text = re.sub(
+        r"(\| Expected files \|) .*? (\|)",
+        f"\\1 {next_task.expected_files} \\2",
+        text,
+    )
+    text = re.sub(
+        r"(\| Dependencies \|) .*? (\|)",
+        f"\\1 {next_task.dependencies} \\2",
+        text,
+    )
+
+    # Acceptance criteria are not stored in the task tracker; clear the stale value
+    text = re.sub(
+        r"(\| Acceptance criteria \|) .*? (\|)",
+        "\\1 — \\2",
+        text,
+    )
+
     # Calculate and update progress
     total, completed, _ = calculate_progress(tasks)
     text = update_milestone_status(text, tasks)
@@ -519,7 +562,9 @@ def advance_to_next() -> None:
         text = text[: old_table.start()] + new_table + "\n" + text[old_table.end() :]
 
     # Update completed tasks
-    completed_section = re.search(r"## Completed Tasks\n\n(.*?)(?=## |\Z)", text, re.DOTALL)
+    completed_section = re.search(
+        r"## Completed Tasks\n\n(.*?)(?=## |\Z)", text, re.DOTALL
+    )
     if completed_section:
         existing = completed_section.group(1).strip()
         if existing == "No completed tasks.":
@@ -535,10 +580,13 @@ def advance_to_next() -> None:
 
     write_state(text)
     print(f"[SUCCESS] Advanced to {next_task.task_id}: {next_task.task_name}")
-    print(f"[INFO] Overall progress: {completed}/{total} tasks ({int((completed/total)*100)}%)")
+    print(
+        f"[INFO] Overall progress: {completed}/{total} tasks ({int((completed / total) * 100)}%)"
+    )
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
+
 
 def main() -> int:
     """Parse arguments and execute the appropriate command."""
@@ -594,10 +642,17 @@ def main() -> int:
             tasks = parse_tasks(text)
             tasks = update_task_status(tasks, args.task, args.status)
             # Rebuild and write
-            old_table = re.search(r"## Atomic Task Tracker\n\n.*?\n(?=## |\Z)", text, re.DOTALL)
+            old_table = re.search(
+                r"## Atomic Task Tracker\n\n.*?\n(?=## |\Z)", text, re.DOTALL
+            )
             if old_table:
                 new_table = rebuild_task_table(tasks)
-                text = text[: old_table.start()] + new_table + "\n" + text[old_table.end() :]
+                text = (
+                    text[: old_table.start()]
+                    + new_table
+                    + "\n"
+                    + text[old_table.end() :]
+                )
             write_state(text)
             print(f"[SUCCESS] Task {args.task} marked as {args.status}")
         return 0
